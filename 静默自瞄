@@ -1,0 +1,377 @@
+local WindUI = loadstring(game:HttpGet('https://github.com/Footagesus/WindUI/releases/latest/download/main.lua'))()
+
+local SilentAimSettings = {
+    Enabled = false,
+    TeamCheck = false,
+    VisibleCheck = false,
+    TargetPart = "HumanoidRootPart",
+    SilentAimMethod = "Raycast",
+    FOVRadius = 130,
+    HitChance = 100,
+}
+
+local Camera = workspace.CurrentCamera
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local GetPlayers = Players.GetPlayers
+local GetMouseLocation = UserInputService.GetMouseLocation
+local FindFirstChild = game.FindFirstChild
+local WorldToScreen = Camera.WorldToScreenPoint
+local GetPartsObscuringTarget = Camera.GetPartsObscuringTarget
+local ValidTargetParts = {"Head", "HumanoidRootPart"}
+
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+
+local fovCircle
+local fovFrame
+local fovGui
+
+if IsMobile then
+    fovGui = Instance.new("ScreenGui")
+    fovGui.Parent = game:GetService("CoreGui")
+    fovGui.ResetOnSpawn = false
+    fovGui.IgnoreGuiInset = true
+
+    fovFrame = Instance.new("Frame")
+    fovFrame.Parent = fovGui
+    fovFrame.Size = UDim2.new(0, SilentAimSettings.FOVRadius * 2, 0, SilentAimSettings.FOVRadius * 2)
+    fovFrame.Position = UDim2.new(0.5, -SilentAimSettings.FOVRadius, 0.5, -SilentAimSettings.FOVRadius)
+    fovFrame.BackgroundTransparency = 1
+    fovFrame.Visible = false
+    fovFrame.ZIndex = 999
+
+    local corner = Instance.new("UICorner")
+    corner.Parent = fovFrame
+    corner.CornerRadius = UDim.new(1, 0)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Parent = fovFrame
+    stroke.Color = Color3.fromRGB(255, 50, 50)
+    stroke.Thickness = 1
+    stroke.Transparency = 0
+
+    fovCircle = {
+        Visible = false,
+        Radius = SilentAimSettings.FOVRadius,
+        Position = Vector2.new(0, 0),
+    }
+    function fovCircle:setVisible(v)
+        self.Visible = v
+        fovFrame.Visible = v
+    end
+    function fovCircle:setRadius(r)
+        self.Radius = r
+        fovFrame.Size = UDim2.new(0, r * 2, 0, r * 2)
+        fovFrame.Position = UDim2.new(0.5, -r, 0.5, -r)
+    end
+    function fovCircle:setPosition(pos)
+        self.Position = pos
+    end
+else
+    fovCircle = Drawing.new("Circle")
+    fovCircle.Thickness = 1
+    fovCircle.NumSides = 100
+    fovCircle.Radius = SilentAimSettings.FOVRadius
+    fovCircle.Filled = false
+    fovCircle.Visible = false
+    fovCircle.Transparency = 1
+    fovCircle.Color = Color3.fromRGB(255, 50, 50)
+end
+
+function CalculateChance(Percentage)
+    Percentage = math.floor(Percentage)
+    return math.random() <= Percentage / 100
+end
+
+local function getPositionOnScreen(Vector)
+    local Vec3, OnScreen = WorldToScreen(Camera, Vector)
+    return Vector2.new(Vec3.X, Vec3.Y), OnScreen
+end
+
+local function getDirection(Origin, Position)
+    return (Position - Origin).Unit * 1000
+end
+
+local function getMousePosition()
+    if IsMobile then
+        local ViewportSize = Camera.ViewportSize
+        return Vector2.new(ViewportSize.X / 2, ViewportSize.Y / 2)
+    end
+    return GetMouseLocation(UserInputService)
+end
+
+local function IsPlayerVisible(Player)
+    local PlayerCharacter = Player.Character
+    local LocalPlayerCharacter = LocalPlayer.Character
+    if not (PlayerCharacter or LocalPlayerCharacter) then
+        return false
+    end
+    local PlayerRoot = FindFirstChild(PlayerCharacter, SilentAimSettings.TargetPart) or FindFirstChild(PlayerCharacter, "HumanoidRootPart")
+    if not PlayerRoot then
+        return false
+    end
+    local CastPoints = {PlayerRoot.Position, LocalPlayerCharacter, PlayerCharacter}
+    local IgnoreList = {LocalPlayerCharacter, PlayerCharacter}
+    local ObscuringObjects = #GetPartsObscuringTarget(Camera, CastPoints, IgnoreList)
+    return ObscuringObjects == 0
+end
+
+local function getClosestPlayer()
+    if not SilentAimSettings.TargetPart then
+        return nil
+    end
+    local Closest = nil
+    local DistanceToMouse = nil
+    local players = GetPlayers(Players)
+    for i = 1, #players do
+        local Player = players[i]
+        if Player == LocalPlayer then
+        elseif SilentAimSettings.TeamCheck and Player.Team == LocalPlayer.Team then
+        else
+            local Character = Player.Character
+            if Character then
+                if SilentAimSettings.VisibleCheck and not IsPlayerVisible(Player) then
+                else
+                    local HumanoidRootPart = FindFirstChild(Character, "HumanoidRootPart")
+                    local Humanoid = FindFirstChild(Character, "Humanoid")
+                    if HumanoidRootPart and Humanoid and Humanoid.Health > 0 then
+                        local ScreenPosition, OnScreen = getPositionOnScreen(HumanoidRootPart.Position)
+                        if OnScreen then
+                            local Distance = (getMousePosition() - ScreenPosition).Magnitude
+                            local maxDist = DistanceToMouse or SilentAimSettings.FOVRadius
+                            if Distance <= maxDist then
+                                if SilentAimSettings.TargetPart == "Random" then
+                                    local randomIndex = math.random(1, #ValidTargetParts)
+                                    Closest = Character[ValidTargetParts[randomIndex]]
+                                else
+                                    local targetPart = Character[SilentAimSettings.TargetPart]
+                                    if not targetPart then
+                                        targetPart = Character["HumanoidRootPart"]
+                                    end
+                                    Closest = targetPart
+                                end
+                                DistanceToMouse = Distance
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return Closest
+end
+
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(...)
+    local Method = getnamecallmethod()
+    local Arguments = {...}
+    local self = Arguments[1]
+    local chance = CalculateChance(SilentAimSettings.HitChance)
+
+    if SilentAimSettings.Enabled and self == workspace and not checkcaller() and chance == true then
+        if Method == "Raycast" and SilentAimSettings.SilentAimMethod == Method then
+            local A_Origin = Arguments[2]
+            local HitPart = getClosestPlayer()
+            if HitPart then
+                Arguments[3] = getDirection(A_Origin, HitPart.Position)
+                return oldNamecall(unpack(Arguments))
+            end
+        end
+    end
+    return oldNamecall(...)
+end))
+
+local renderConnection
+renderConnection = RunService.RenderStepped:Connect(function()
+    if SilentAimSettings.Enabled then
+        if IsMobile then
+            fovFrame.Visible = true
+            fovFrame.Size = UDim2.new(0, SilentAimSettings.FOVRadius * 2, 0, SilentAimSettings.FOVRadius * 2)
+            fovFrame.Position = UDim2.new(0.5, -SilentAimSettings.FOVRadius, 0.5, -SilentAimSettings.FOVRadius)
+        else
+            fovCircle.Position = getMousePosition()
+            fovCircle.Radius = SilentAimSettings.FOVRadius
+            fovCircle.Visible = true
+        end
+    else
+        if IsMobile then
+            fovFrame.Visible = false
+        else
+            fovCircle.Visible = false
+        end
+    end
+end)
+
+task.wait(0.5)
+
+local Window = WindUI:CreateWindow({
+    Folder = 'SilentAim',
+    Resizable = false,
+    Title = '静默自瞄',
+    Theme = 'Dark',
+    Icon = 'crosshair',
+    Size = UDim2.fromOffset(500, 420),
+    OpenButton = {
+        Title = '静默自瞄',
+        Enabled = true,
+        Draggable = true,
+        Keybind = Enum.KeyCode.RightControl,
+    },
+})
+
+local originalDestroy = Window.Destroy
+Window.Destroy = function(self, ...)
+    SilentAimSettings.Enabled = false
+    if IsMobile then
+        if fovGui then
+            fovGui:Destroy()
+            fovGui = nil
+        end
+    else
+        fovCircle.Visible = false
+    end
+    if renderConnection then
+        renderConnection:Disconnect()
+        renderConnection = nil
+    end
+    return originalDestroy(self, ...)
+end
+
+Window:SetToggleKey(Enum.KeyCode.RightControl)
+
+local MainTab = Window:Tab({
+    Title = '自瞄',
+    Icon = 'target',
+})
+
+MainTab:Toggle({
+    Title = '启用静默自瞄',
+    Value = SilentAimSettings.Enabled,
+    Callback = function(state)
+        SilentAimSettings.Enabled = state
+        if IsMobile then
+            fovFrame.Visible = state
+        else
+            fovCircle.Visible = state
+        end
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Slider({
+    Title = 'FOV 范围',
+    Step = 1,
+    Value = {
+        Min = 20,
+        Max = 500,
+        Default = SilentAimSettings.FOVRadius,
+    },
+    Callback = function(value)
+        SilentAimSettings.FOVRadius = value
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Slider({
+    Title = '命中率 (%)',
+    Step = 1,
+    Value = {
+        Min = 1,
+        Max = 100,
+        Default = SilentAimSettings.HitChance,
+    },
+    Callback = function(value)
+        SilentAimSettings.HitChance = value
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Dropdown({
+    Title = '瞄准部位',
+    Values = {
+        'HumanoidRootPart',
+        'Head',
+        'Random',
+    },
+    Value = SilentAimSettings.TargetPart,
+    Multi = false,
+    Callback = function(option)
+        SilentAimSettings.TargetPart = option
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Dropdown({
+    Title = '自瞄方式',
+    Values = {
+        'Raycast',
+        'FindPartOnRay',
+        'FindPartOnRayWithIgnoreList',
+        'FindPartOnRayWithWhitelist',
+    },
+    Value = SilentAimSettings.SilentAimMethod,
+    Multi = false,
+    Callback = function(option)
+        SilentAimSettings.SilentAimMethod = option
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Toggle({
+    Title = '队伍检查',
+    Value = SilentAimSettings.TeamCheck,
+    Callback = function(state)
+        SilentAimSettings.TeamCheck = state
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Toggle({
+    Title = '可见性检查',
+    Value = SilentAimSettings.VisibleCheck,
+    Callback = function(state)
+        SilentAimSettings.VisibleCheck = state
+    end,
+})
+
+MainTab:Space()
+
+MainTab:Button({
+    Title = '重置所有设置',
+    Callback = function()
+        SilentAimSettings.Enabled = false
+        SilentAimSettings.TeamCheck = false
+        SilentAimSettings.VisibleCheck = false
+        SilentAimSettings.TargetPart = "HumanoidRootPart"
+        SilentAimSettings.SilentAimMethod = "Raycast"
+        SilentAimSettings.FOVRadius = 130
+        SilentAimSettings.HitChance = 100
+        if IsMobile then
+            fovFrame.Visible = false
+            fovFrame.Size = UDim2.new(0, 260, 0, 260)
+            fovFrame.Position = UDim2.new(0.5, -130, 0.5, -130)
+        else
+            fovCircle.Radius = 130
+            fovCircle.Visible = false
+        end
+        WindUI:Notify({
+            Title = '已重置',
+            Content = '所有设置已恢复默认',
+        })
+    end,
+})
+
+WindUI:Notify({
+    Title = '加载完成',
+    Content = '静默自瞄已加载',
+    Duration = 2,
+})
