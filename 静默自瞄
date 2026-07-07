@@ -3,7 +3,6 @@ local WindUI = loadstring(game:HttpGet('https://github.com/Footagesus/WindUI/rel
 local SilentAimSettings = {
     Enabled = false,
     TeamCheck = false,
-    VisibleCheck = false,
     TargetPart = "HumanoidRootPart",
     SilentAimMethod = "Raycast",
     FOVRadius = 130,
@@ -103,22 +102,6 @@ local function getMousePosition()
     return GetMouseLocation(UserInputService)
 end
 
-local function IsPlayerVisible(Player)
-    local PlayerCharacter = Player.Character
-    local LocalPlayerCharacter = LocalPlayer.Character
-    if not (PlayerCharacter or LocalPlayerCharacter) then
-        return false
-    end
-    local PlayerRoot = FindFirstChild(PlayerCharacter, SilentAimSettings.TargetPart) or FindFirstChild(PlayerCharacter, "HumanoidRootPart")
-    if not PlayerRoot then
-        return false
-    end
-    local CastPoints = {PlayerRoot.Position, LocalPlayerCharacter, PlayerCharacter}
-    local IgnoreList = {LocalPlayerCharacter, PlayerCharacter}
-    local ObscuringObjects = #GetPartsObscuringTarget(Camera, CastPoints, IgnoreList)
-    return ObscuringObjects == 0
-end
-
 local function getClosestPlayer()
     if not SilentAimSettings.TargetPart then
         return nil
@@ -133,28 +116,25 @@ local function getClosestPlayer()
         else
             local Character = Player.Character
             if Character then
-                if SilentAimSettings.VisibleCheck and not IsPlayerVisible(Player) then
-                else
-                    local HumanoidRootPart = FindFirstChild(Character, "HumanoidRootPart")
-                    local Humanoid = FindFirstChild(Character, "Humanoid")
-                    if HumanoidRootPart and Humanoid and Humanoid.Health > 0 then
-                        local ScreenPosition, OnScreen = getPositionOnScreen(HumanoidRootPart.Position)
-                        if OnScreen then
-                            local Distance = (getMousePosition() - ScreenPosition).Magnitude
-                            local maxDist = DistanceToMouse or SilentAimSettings.FOVRadius
-                            if Distance <= maxDist then
-                                if SilentAimSettings.TargetPart == "Random" then
-                                    local randomIndex = math.random(1, #ValidTargetParts)
-                                    Closest = Character[ValidTargetParts[randomIndex]]
-                                else
-                                    local targetPart = Character[SilentAimSettings.TargetPart]
-                                    if not targetPart then
-                                        targetPart = Character["HumanoidRootPart"]
-                                    end
-                                    Closest = targetPart
+                local HumanoidRootPart = FindFirstChild(Character, "HumanoidRootPart")
+                local Humanoid = FindFirstChild(Character, "Humanoid")
+                if HumanoidRootPart and Humanoid and Humanoid.Health > 0 then
+                    local ScreenPosition, OnScreen = getPositionOnScreen(HumanoidRootPart.Position)
+                    if OnScreen then
+                        local Distance = (getMousePosition() - ScreenPosition).Magnitude
+                        local maxDist = DistanceToMouse or SilentAimSettings.FOVRadius
+                        if Distance <= maxDist then
+                            if SilentAimSettings.TargetPart == "Random" then
+                                local randomIndex = math.random(1, #ValidTargetParts)
+                                Closest = Character[ValidTargetParts[randomIndex]]
+                            else
+                                local targetPart = Character[SilentAimSettings.TargetPart]
+                                if not targetPart then
+                                    targetPart = Character["HumanoidRootPart"]
                                 end
-                                DistanceToMouse = Distance
+                                Closest = targetPart
                             end
+                            DistanceToMouse = Distance
                         end
                     end
                 end
@@ -292,17 +272,24 @@ MainTab:Slider({
 
 MainTab:Space()
 
+local TargetPartMap = {
+    ['躯干'] = 'HumanoidRootPart',
+    ['头部'] = 'Head',
+    ['随机打'] = 'Random',
+}
+local ReverseMap = {
+    HumanoidRootPart = '躯干',
+    Head = '头部',
+    Random = '随机打',
+}
+
 MainTab:Dropdown({
     Title = '瞄准部位',
-    Values = {
-        'HumanoidRootPart',
-        'Head',
-        'Random',
-    },
-    Value = SilentAimSettings.TargetPart,
+    Values = {'躯干', '头部', '随机打'},
+    Value = ReverseMap[SilentAimSettings.TargetPart] or '躯干',
     Multi = false,
     Callback = function(option)
-        SilentAimSettings.TargetPart = option
+        SilentAimSettings.TargetPart = TargetPartMap[option]
     end,
 })
 
@@ -335,22 +322,11 @@ MainTab:Toggle({
 
 MainTab:Space()
 
-MainTab:Toggle({
-    Title = '可见性检查',
-    Value = SilentAimSettings.VisibleCheck,
-    Callback = function(state)
-        SilentAimSettings.VisibleCheck = state
-    end,
-})
-
-MainTab:Space()
-
 MainTab:Button({
     Title = '重置所有设置',
     Callback = function()
         SilentAimSettings.Enabled = false
         SilentAimSettings.TeamCheck = false
-        SilentAimSettings.VisibleCheck = false
         SilentAimSettings.TargetPart = "HumanoidRootPart"
         SilentAimSettings.SilentAimMethod = "Raycast"
         SilentAimSettings.FOVRadius = 130
